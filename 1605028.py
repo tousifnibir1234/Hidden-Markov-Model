@@ -45,6 +45,55 @@ def backwardCalc(emission, transition):
     return backward
 
 
+def viterbiAlgorithm(emission, transition, learningParam):
+    dpTable = np.zeros([dataSize, n])  # dpTable size 2x1000
+    backTrack = np.zeros([dataSize, n])
+    for i in range(n):
+        dpTable[0, i] = np.log(initial[i]) + np.log(emission[0, i])
+    for i in range(1, dataSize):
+        for s in range(n):
+            max = -np.Infinity
+            prev = -1
+            for k in range(n):
+                temp = dpTable[i-1, k] + \
+                    np.log(emission[i, s]) + np.log(transition[k, s])
+                if (temp > max):
+                    max = temp
+                    prev = k
+            dpTable[i][s] = max
+            backTrack[i][s] = int(prev)
+
+    ans = []
+    ansIndex = int(np.argmax(np.array(dpTable[dataSize-1])))
+    ans.append(ansIndex)
+    for i in range(dataSize-1, 0, -1):
+        # print(i ,ansIndex)
+        ansIndex = backTrack[i, int(ansIndex)]
+        ans.append(ansIndex)
+    # print("ans size is ", len(ans))
+    ans = np.array(ans)
+    ans = np.flip(ans)
+    # print("after flip" ,ans)
+    ans = ans.tolist()
+
+    # print(ans)
+    for i in range(len(ans)):
+        if ans[i] == 0:
+            ans[i] = "El Nino"
+        else:
+            ans[i] = "La Nina"
+    np.savetxt("dpTable.txt", dpTable, delimiter=' ')
+    # np.savetxt("vitebriOutput.txt",ans,delimiter="\n")
+    if(learningParam == 0):
+        with open('states_Viterbi_wo_learning.txt', 'w') as f:
+            for item in ans:
+                f.write("\"%s\"\n" % item)
+    else:
+        with open('states_Viterbi_after_learning.txt', 'w') as f:
+            for item in ans:
+                f.write("\"%s\"\n" % item)
+
+
 def BaumWelchAlgorithm(emission, transition, initialMat):
     for r in range(6):
 
@@ -71,15 +120,14 @@ def BaumWelchAlgorithm(emission, transition, initialMat):
             mul = piStar[:, i] * data
             sum = np.sum(piStar[:, i])
             meanList[i] = np.sum(mul)/sum
-        print("Mean list is", meanList)
+        # print("Mean list is", meanList)
 
         for i in range(n):
             mul = piStar[:, i] * (data-meanList[i])**2
             sum = np.sum(piStar[:, i])
             SDlist[i] = np.sqrt(np.sum(mul)/sum)
-        print("SD list is ", SDlist)
+        # print("SD list is ", SDlist)
 
-        print(piDoubleStar[1, 1, 1])
         ans = np.zeros([n, n])
         for i in range(dataSize-1):
             for k in range(n):
@@ -88,16 +136,39 @@ def BaumWelchAlgorithm(emission, transition, initialMat):
 
         for i in range(n):
             ans[i] = ans[i]/np.sum(ans[i])
-        print("Transition matrix is \n", ans)
+        # print("Transition matrix is \n", ans)
 
         transition = ans
-        # initialMat = initialEstimator(transition)
         emission = np.empty((n, dataSize))
         for i in range(n):
             emission[i] = norm(meanList[i], SDlist[i]).pdf(data)
         emission = np.asmatrix(emission).T
 
+    viterbiAlgorithm(emission, transition, 1)
 
+    # Output file for parameter
+    file = open("parameters_learned.txt", "w")
+    for i in range(n):
+        for j in range(n):
+            t = '{0:.4f}'.format(transition[i, j])
+            file.write(f"{t}\t")
+        file.write("\n")
+    for i in range(n):
+        t = '{0:.4f}'.format(meanList[i])
+        file.write(f"{t}\t")
+    file.write("\n")
+    for i in range(n):
+        t = '{0:.4f}'.format(SDlist[i]**2)
+        file.write(f"{t}\t")
+
+    file.write("\n")
+    for i in range(n):
+        t = '{0:.4f}'.format(initialMat[i])
+        file.write(f"{t}\t")
+
+
+##################################### Starting point ##################################
+# reading parameterfile
 f = open("parameters.txt", "r")
 n = int(f.readline())
 transitionMatrix = np.empty([n, n])
@@ -107,20 +178,27 @@ for i in range(n):
     transitionMatrix[i] = l
 
 Mean = f.readline()
-print("mean is ", Mean)
 Mean = [np.double(p) for p in Mean.split()]
 Variance = f.readline()
 Variance = [np.double(p) for p in Variance.split()]
 
+# initial probability
 initial = initialEstimator(transitionMatrix)
 
+
+# Reading data file
 dataFile = open("data.txt", "r")
 data = np.double(dataFile.readlines())
 
 dataSize = len(data)
+
+# Emission Matrix build
 emissionMatrix = np.empty((n, dataSize))
 for i in range(n):
     emissionMatrix[i] = norm(Mean[i], np.sqrt(Variance[i])).pdf(data)
 emissionMatrix = np.asmatrix(emissionMatrix).T
 
+
+# running  Viterbi and  Baum Welch algorithm
+viterbiAlgorithm(emissionMatrix, transitionMatrix, 0)
 BaumWelchAlgorithm(emissionMatrix, transitionMatrix, initial)
